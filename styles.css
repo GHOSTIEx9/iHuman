@@ -529,6 +529,33 @@ body {
 
 .sample-btn { margin-top: 12px; align-self: flex-start; }
 
+/* Voice (style) picker */
+
+.voice-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
+
+.voice-row__label {
+  font-size: .72rem;
+  font-weight: 600;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.seg--voice .seg__btn {
+  padding: 6px 13px;
+  font-size: .76rem;
+}
+
+.seg--voice .seg__glider {
+  transition: left .4s var(--ease-spring), width .4s var(--ease-spring);
+}
+
 .hint {
   text-align: center;
   color: var(--ink-3);

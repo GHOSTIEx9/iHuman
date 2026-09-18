@@ -19,6 +19,7 @@
   var clearBtn = $("clearBtn");
 
   var mode = "balanced";
+  var style = "casual";
   var lastInput = "";
   var DEGREE = { subtle: 1, balanced: 2, deep: 3 };
 
@@ -51,11 +52,14 @@
 
   /* ---------- mode selector ---------- */
 
-  var segBtns = Array.prototype.slice.call(document.querySelectorAll(".seg__btn"));
+  var segBtns = Array.prototype.slice.call(document.querySelectorAll(".seg:not(.seg--voice) .seg__btn"));
+  var styleBtns = Array.prototype.slice.call(document.querySelectorAll(".seg--voice .seg__btn"));
 
-  function updateGlider() {
-    var glider = document.querySelector(".seg__glider");
-    var active = document.querySelector(".seg__btn.is-active");
+  function updateGlider(scope) {
+    var sel = scope ? ".seg--voice .seg__glider" : ".seg:not(.seg--voice) .seg__glider";
+    var glider = document.querySelector(sel);
+    var activeSel = scope ? ".seg--voice .seg__btn.is-active" : ".seg:not(.seg--voice) .seg__btn.is-active";
+    var active = document.querySelector(activeSel);
     if (!glider || !active) return;
     glider.style.left = active.offsetLeft + "px";
     glider.style.width = active.offsetWidth + "px";
@@ -66,11 +70,22 @@
       segBtns.forEach(function (x) { x.classList.remove("is-active"); });
       b.classList.add("is-active");
       mode = b.dataset.mode;
-      updateGlider();
+      updateGlider(false);
     });
   });
-  window.addEventListener("resize", updateGlider);
-  updateGlider();
+
+  styleBtns.forEach(function (b) {
+    b.addEventListener("click", function () {
+      styleBtns.forEach(function (x) { x.classList.remove("is-active"); });
+      b.classList.add("is-active");
+      style = b.dataset.style;
+      updateGlider(true);
+    });
+  });
+
+  window.addEventListener("resize", function () { updateGlider(false); updateGlider(true); });
+  updateGlider(false);
+  updateGlider(true);
 
   /* ---------- output ---------- */
 
@@ -122,7 +137,7 @@
     lastInput = text;
     setBusy(true);
     setTimeout(function () {
-      var res = window.IHumanizer.humanize(text, { degree: DEGREE[mode] });
+      var res = window.IHumanizer.humanize(text, { degree: DEGREE[mode], style: style });
       renderOutput(res.text, res.score);
       setBusy(false);
     }, 520);
@@ -130,7 +145,7 @@
 
   function reroll() {
     if (!lastInput) return;
-    var res = window.IHumanizer.humanize(lastInput, { degree: DEGREE[mode] });
+    var res = window.IHumanizer.humanize(lastInput, { degree: DEGREE[mode], style: style });
     renderOutput(res.text, res.score);
   }
 
