@@ -15,7 +15,7 @@ python3 -m http.server 8080
 
 ## Deploy
 
-It's a fully static site, so any static host works — copy the four files (index.html, styles.css, humanizer.js, app.js) to:
+It's a fully static site, so any static host works — copy the files (index.html, styles.css, humanizer.js, app.js + the assets/ folder) to:
 
 - **Netlify** — drag-and-drop the folder at app.netlify.com/drop
 - **Vercel** — `npx vercel` in this folder
@@ -27,7 +27,9 @@ It's a fully static site, so any static host works — copy the four files (inde
 | File | Purpose |
 |---|---|
 | `index.html` | Markup, SVG logo/favicon, SEO + OG meta |
-| `styles.css` | Design system: glass UI, aurora background, animations |
+| `styles.css` | Design system: glass UI, image background, animations |
+| `assets/background.jpg` | Desktop background image (1920px, ~220KB) |
+| `assets/background-mobile.jpg` | Mobile background image (1080px, ~70KB) |
 | `humanizer.js` | Offline rewriting engine v2 (exposes `window.IHumanizer`) |
 | `dev-test.js` | Fuzz/quality harness for the engine (dev only, not shipped) |
 | `app.js` | UI wiring: counters, meter, copy/download/speech, toasts |
