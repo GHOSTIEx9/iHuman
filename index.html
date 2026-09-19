@@ -5,34 +5,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>iHuman — AI Text Humanizer</title>
   <meta name="description" content="Turn stiff AI writing into natural, human-sounding text. Free, instant, private — no sign-up, no API keys. Text never leaves your browser." />
-  <meta name="theme-color" content="#07060f" />
+  <meta name="theme-color" content="#100c08" />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet" />
+  <script>document.documentElement.className += ' js';</script>
   <link rel="stylesheet" href="styles.css" />
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='.5' stop-color='%23ff6ec7'/%3E%3Cstop offset='1' stop-color='%23ff9d5c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='%230b0a18'/%3E%3Cpath d='M32 10c9 12 15 19 15 27a15 15 0 0 1-30 0c0-8 6-15 15-27z' fill='url(%23g)'/%3E%3C/svg%3E" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%23ffb347'/%3E%3Cstop offset='.5' stop-color='%23ff6b35'/%3E%3Cstop offset='1' stop-color='%23d64545'/%3E%3C/linearGradient%3E%3C/defs%3E%3Ccircle cx='32' cy='32' r='30' fill='%23140f0a'/%3E%3Cpath d='M32 10c9 12 15 19 15 27a15 15 0 0 1-30 0c0-8 6-15 15-27z' fill='url(%23g)'/%3E%3C/svg%3E" />
   <meta property="og:title" content="iHuman — AI Text Humanizer" />
   <meta property="og:description" content="Turn stiff AI writing into natural, human-sounding text. Free, instant, private." />
   <meta property="og:type" content="website" />
 </head>
 <body>
   <div class="bg" aria-hidden="true">
-    <picture>
-      <source media="(max-width: 700px)" srcset="assets/background-mobile.jpg" />
-      <img class="bg__img" src="assets/background.jpg" alt="" fetchpriority="high" />
-    </picture>
-    <div class="bg__tint"></div>
+    <div class="bg__blob bg__blob--1"></div>
+    <div class="bg__blob bg__blob--2"></div>
+    <div class="bg__blob bg__blob--3"></div>
+    <div class="bg__blob bg__blob--4"></div>
+    <div class="bg__blob bg__blob--5"></div>
     <div class="bg__grain"></div>
+    <div class="bg__vignette"></div>
   </div>
+
+  <div class="scroll-progress" aria-hidden="true"></div>
 
   <header class="nav glass reveal">
     <a class="brand" href="#top" aria-label="iHuman home">
       <svg class="brand__mark" viewBox="0 0 64 64" aria-hidden="true">
         <defs>
           <linearGradient id="logoGrad" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="#7c5cff"/>
-            <stop offset=".5" stop-color="#ff6ec7"/>
-            <stop offset="1" stop-color="#ff9d5c"/>
+            <stop offset="0" stop-color="#ffb347"/>
+            <stop offset=".5" stop-color="#ff6b35"/>
+            <stop offset="1" stop-color="#d64545"/>
           </linearGradient>
         </defs>
         <circle cx="32" cy="32" r="30" fill="rgba(255,255,255,.04)" stroke="url(#logoGrad)" stroke-width="2"/>
@@ -59,8 +63,30 @@
       </div>
     </section>
 
-    <section id="studio" class="studio reveal" style="--d:.36s">
-      <div class="studio__col">
+    <section id="studio" class="studio">
+      <div class="tabs" role="tablist" aria-label="What are you humanizing?">
+        <button class="tabs__btn is-active" data-tab="text" role="tab" aria-selected="true" type="button">Text</button>
+        <button class="tabs__btn" data-tab="doc" role="tab" aria-selected="false" type="button">Document · PDF / DOCX</button>
+        <span class="tabs__glider" aria-hidden="true"></span>
+      </div>
+
+      <div class="studio__controls scroll-reveal">
+        <div class="seg seg--voice" role="group" aria-label="Style">
+          <button class="seg__btn is-active" data-style="casual" type="button">Casual</button>
+          <button class="seg__btn" data-style="professional" type="button">Professional</button>
+          <button class="seg__btn" data-style="academic" type="button">Academic</button>
+          <button class="seg__btn" data-style="genz" type="button">Gen-Z</button>
+          <span class="seg__glider" aria-hidden="true"></span>
+        </div>
+        <div class="seg" role="group" aria-label="Intensity">
+          <button class="seg__btn is-active" data-mode="subtle" type="button">Subtle</button>
+          <button class="seg__btn" data-mode="balanced" type="button">Balanced</button>
+          <button class="seg__btn" data-mode="deep" type="button">Deep</button>
+          <span class="seg__glider" aria-hidden="true"></span>
+        </div>
+      </div>
+
+      <div class="studio__col scroll-reveal studio__col--text-in">
         <div class="pane glass">
           <div class="pane__head">
             <span class="pane__label">Your text</span>
@@ -70,25 +96,9 @@
             </div>
           </div>
           <textarea id="inputText" class="textarea" placeholder="Paste or type your AI-generated text here…" spellcheck="false"></textarea>
-          <div class="voice-row">
-            <span class="voice-row__label">Voice</span>
-            <div class="seg seg--voice" role="group" aria-label="Style">
-              <button class="seg__btn is-active" data-style="casual" type="button">Casual</button>
-              <button class="seg__btn" data-style="professional" type="button">Professional</button>
-              <button class="seg__btn" data-style="academic" type="button">Academic</button>
-              <button class="seg__btn" data-style="genz" type="button">Gen-Z</button>
-              <span class="seg__glider" aria-hidden="true"></span>
-            </div>
-          </div>
           <div class="pane__foot">
             <span class="meta" id="inputStats">0 words · 0 chars</span>
             <div class="controls">
-              <div class="seg" role="group" aria-label="Intensity">
-                <button class="seg__btn is-active" data-mode="subtle" type="button">Subtle</button>
-                <button class="seg__btn" data-mode="balanced" type="button">Balanced</button>
-                <button class="seg__btn" data-mode="deep" type="button">Deep</button>
-                <span class="seg__glider" aria-hidden="true"></span>
-              </div>
               <button class="btn btn--primary" id="humanizeBtn" type="button"><span class="btn__label">Humanize</span></button>
             </div>
           </div>
@@ -97,7 +107,46 @@
         <p class="hint glass-pill">Runs entirely in your browser — your text never leaves this page.</p>
       </div>
 
-      <div class="studio__col">
+      <div class="studio__col scroll-reveal studio__col--doc-in" hidden>
+        <div class="pane glass">
+          <div class="pane__head">
+            <span class="pane__label">Document</span>
+            <div class="pane__actions">
+              <button class="btn btn--ghost btn--xs" id="docClearBtn" type="button" disabled>Clear</button>
+            </div>
+          </div>
+          <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Upload a PDF or DOCX file">
+            <svg viewBox="0 0 24 24" class="dropzone__icon" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 18v-6m0 0-2.5 2.5M12 12l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
+            <p class="dropzone__title">Drop a PDF or DOCX here</p>
+            <p class="dropzone__sub">or <span class="dropzone__link">browse files</span> · up to 15 MB · parsed locally, never uploaded</p>
+            <input type="file" id="fileInput" accept=".pdf,.docx" hidden />
+          </div>
+          <div class="filecard" id="fileCard" hidden>
+            <div class="filecard__icon" aria-hidden="true">📄</div>
+            <div class="filecard__meta">
+              <span class="filecard__name" id="fileName"></span>
+              <span class="filecard__info" id="fileInfo"></span>
+            </div>
+            <button class="btn btn--ghost btn--xs" id="fileRemoveBtn" type="button">Remove</button>
+          </div>
+          <div class="extract" id="extractReport" hidden>
+            <div class="extract__row"><span>Pages</span><b id="xPages">—</b></div>
+            <div class="extract__row"><span>Headings detected</span><b id="xHeadings">—</b></div>
+            <div class="extract__row"><span>Paragraphs</span><b id="xParas">—</b></div>
+            <div class="extract__row"><span>Words</span><b id="xWords">—</b></div>
+          </div>
+          <div class="progress" id="docProgress" hidden><div class="progress__fill" id="docProgressFill"></div></div>
+          <div class="pane__foot">
+            <span class="meta" id="docStatus">No file loaded</span>
+            <div class="controls">
+              <button class="btn btn--primary" id="docHumanizeBtn" type="button" disabled><span class="btn__label">Humanize document</span></button>
+            </div>
+          </div>
+        </div>
+        <p class="hint glass-pill">Your file is parsed and rewritten entirely on this device.</p>
+      </div>
+
+      <div class="studio__col scroll-reveal studio__col--text-out" style="--d:.14s">
         <div class="pane glass pane--out">
           <div class="pane__head">
             <span class="pane__label">Humanized</span>
@@ -124,22 +173,48 @@
           </div>
         </div>
       </div>
+
+      <div class="studio__col scroll-reveal studio__col--doc-out" style="--d:.14s" hidden>
+        <div class="pane glass pane--out">
+          <div class="pane__head">
+            <span class="pane__label">Humanized document</span>
+            <div class="pane__actions">
+              <button class="btn btn--ghost btn--xs" id="docPdfBtn" type="button" disabled>PDF ↓</button>
+              <button class="btn btn--ghost btn--xs" id="docDocxBtn" type="button" disabled>DOCX ↓</button>
+            </div>
+          </div>
+          <div class="docpreview" id="docPreview" aria-live="polite">
+            <div class="output__empty">
+              <svg viewBox="0 0 64 64" class="output__icon" aria-hidden="true"><path d="M32 10c9 12 15 19 15 27a15 15 0 0 1-30 0c0-8 6-15 15-27z"/></svg>
+              <p>Upload a document, then humanize it.</p>
+            </div>
+          </div>
+          <div class="pane__foot">
+            <span class="meta" id="docOutStats">—</span>
+            <div class="meter" id="docMeter" title="Estimated human-ness">
+              <span class="meter__label">Human-ness</span>
+              <div class="meter__track"><div class="meter__fill" id="docMeterFill"></div></div>
+              <span class="meter__value" id="docMeterValue">—</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <section id="how" class="how">
-      <h2 class="how__title reveal">How it works</h2>
+      <h2 class="how__title scroll-reveal">How it works</h2>
       <div class="cards">
-        <article class="card glass reveal" style="--d:.05s">
+        <article class="card glass scroll-reveal" style="--d:.05s">
           <div class="card__icon">🎵</div>
           <h3>Rewrites the rhythm</h3>
           <p>AI text is metronomic — same-length sentences, predictable beats. iHuman injects burstiness: some short. Some longer, winding thoughts that feel like a person thinking.</p>
         </article>
-        <article class="card glass reveal" style="--d:.15s">
+        <article class="card glass scroll-reveal" style="--d:.15s">
           <div class="card__icon">🧹</div>
           <h3>Kills AI clichés</h3>
           <p>"Delve into." "In today's fast-paced world." "Furthermore." The dead giveaways get replaced with plain language a human would actually write.</p>
         </article>
-        <article class="card glass reveal" style="--d:.25s">
+        <article class="card glass scroll-reveal" style="--d:.25s">
           <div class="card__icon">🔒</div>
           <h3>Private by design</h3>
           <p>No accounts, no servers, no tracking of your words. The rewriting engine is JavaScript running locally — close the tab and it's gone.</p>
@@ -148,9 +223,9 @@
     </section>
   </main>
 
-  <footer class="footer glass reveal">
+  <footer class="footer glass scroll-reveal">
     <div class="footer__brand">
-      <svg class="brand__mark brand__mark--sm" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="rgba(255,255,255,.04)"/><path d="M32 10c9 12 15 19 15 27a15 15 0 0 1-30 0c0-8 6-15 15-27z" fill="url(#logoGrad)"/></svg>
+      <svg class="brand__mark brand__mark--sm" viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="30" fill="rgba(255,255,255,.04)"/><path d="M32 10c9 12 15 19 15 27a15 15 0 0 1-30 0c0-8 6-15 15-27z" fill="#ff6b35"/></svg>
       <span>iHuman</span>
     </div>
     <p class="footer__note">Human-sounding text, minus the robot. © 2026 iHuman</p>

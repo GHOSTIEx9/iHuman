@@ -1,5 +1,5 @@
 /* ============================================================
-   iHuman — offline humanization engine v2
+   iHuman — offline humanization engine v3 (12-stage pipeline)
    ============================================================
    1. Structure-aware rewrites: passive->active (past tense),
       "there are" extraction, discourse-marker demotion,
@@ -740,8 +740,8 @@
 
   /* --- 5c. Discourse-marker demotion (drop repetitive "Also," etc.) --- */
 
-  function demoteMarkers(s, degree) {
-    const prob = [0, 0.3, 0.45, 0.6][degree];
+  function demoteMarkers(s, degree, probOverride) {
+    const prob = probOverride !== undefined ? probOverride : [0, 0.3, 0.45, 0.6][degree];
     let out = "";
     let last = 0;
     const re = /(^|[.!?]\s+)(Also|Plus|So|Even so|Still|But|And)(,\s*)([a-z])/g;
@@ -793,8 +793,8 @@
 
   /* --- 5e. Merging short sentences --- */
 
-  function mergeShortSentences(s, degree, S) {
-    const prob = [0, 0.2, 0.35, 0.5][degree];
+  function mergeShortSentences(s, degree, S, probOverride) {
+    const prob = probOverride !== undefined ? probOverride : [0, 0.2, 0.35, 0.5][degree];
     const sentences = splitSentences(s);
     if (sentences.length < 2) return s;
     const out = [];
@@ -829,8 +829,8 @@
 
   /* --- 5f. Repetition variety: don't start two sentences the same --- */
 
-  function varyRepeats(s, degree) {
-    const prob = [0, 0.4, 0.55, 0.7][degree];
+  function varyRepeats(s, degree, probOverride) {
+    const prob = probOverride !== undefined ? probOverride : [0, 0.4, 0.55, 0.7][degree];
     const seen = {};
     let out = "";
     let last = 0;
@@ -1042,9 +1042,10 @@
        Math.min((commas / n) * 60, 0.5) +
        Math.min(contractions / Math.max(1, n / 22), 1) * 0.5) / 1.55);
 
-    /* 5/6. Marker counts */
+    /* 5/6. Marker counts — match() not test(): /g regexes carry lastIndex
+       state between .test() calls, which made scores non-deterministic */
     let aiHits = 0;
-    for (const re of AI_MARKERS_RE) { if (re.test(lower)) aiHits++; }
+    for (const re of AI_MARKERS_RE) { if ((lower.match(re) || []).length) aiHits++; }
     let humanHits = 0;
     for (const re of HUMAN_BONUS_RE) { humanHits += (t.match(re) || []).length; }
 
@@ -1202,7 +1203,896 @@
   }
 
   /* ============================================================
-     SECTION 8 — Public API
+     SECTION 8 — Pipeline analysis (stages 2-4)
+     Stages: 2 Content & Context, 3 Semantic Representation,
+             4 Writing-Style Analyzer. Pure analysis, no rewriting.
+     ============================================================ */
+
+  var ACADEMIC_SIGNALS = [
+    "hypothesis", "empirical", "methodology", "literature", "correlation",
+    "findings", "participants", "variables", "framework", "regression",
+    "qualitative", "quantitative", "theoretical", "phenomenon", "dataset"
+  ];
+
+  function analyzeDocument(text) {
+    const lower = String(text).toLowerCase();
+    const words = lower.match(/[a-z]['a-z-]*/g) || [];
+    const n = words.length || 1;
+
+    /* content-word frequency map — backbone of the meaning gate */
+    const contentFreq = {};
+    let contentTotal = 0;
+    for (const w of words) {
+      if (STOPWORDS[w] || w.length < 4) continue;
+      contentFreq[w] = (contentFreq[w] || 0) + 1;
+      contentTotal++;
+    }
+
+    /* stage 2: domain guess */
+    let techHits = 0, academicHits = 0;
+    for (const w of words) {
+      if (/^(data|system|software|user|digital|platform|algorithm|network|cloud|api|engine|process|automation|comput|analytic)/.test(w)) techHits++;
+    }
+    for (const sig of ACADEMIC_SIGNALS) { if (lower.indexOf(sig) !== -1) academicHits++; }
+    const counts = { technical: techHits, academic: academicHits };
+    let domain = "general";
+    let topDomain = techHits;
+    if (academicHits > topDomain) { domain = "academic"; topDomain = academicHits; }
+    if (topDomain / n < 0.02) domain = "general";
+
+    /* stage 2: formality 0-1 — formal markers vs contraction/talk markers */
+    const formalMarkers = (lower.match(/\b(therefore|however|furthermore|moreover|whereas|thus|pursuant|regarding|notwithstanding)\b/g) || []).length;
+    const talkMarkers = (lower.match(/\b(stuff|folks|kinda|gonna|wanna|yeah|basically|pretty much)\b/g) || []).length;
+    const contractionsN = (lower.match(/\b\w+'\w+\b/g) || []).length;
+    const formality = Math.max(0, Math.min(1,
+      0.5 + (formalMarkers * 0.04 - talkMarkers * 0.06 - (contractionsN / n) * 2.2)));
+
+    /* stage 2: density — heavy nouns (nominal style) vs verbs */
+    const density = Math.min(1, contentTotal / n / 0.55);
+
+    /* stage 3: semantic representation — one significance score per paragraph */
+    const paragraphs = String(text).split(/\n{2,}/);
+    const significance = paragraphs.map(function (p) {
+      const pw = (p.toLowerCase().match(/[a-z]['a-z-]*/g) || []);
+      if (!pw.length) return 0;
+      let uniq = 0, num = /[0-9]/.test(p) ? 1 : 0;
+      const seen = {};
+      for (const w of pw) {
+        if (STOPWORDS[w] || w.length < 4) continue;
+        if (!seen[w]) { seen[w] = 1; uniq++; }
+      }
+      return Math.min(1, (uniq / pw.length) * 1.6 + num * 0.25);
+    });
+
+    /* stage 4: writing-style analyzer — the input's own voice */
+    const sentences = splitSentences(String(text));
+    const lens = sentences.map(function (s) {
+      return (s.match(/[A-Za-z][A-Za-z'-]*/g) || []).length;
+    }).filter(function (l) { return l > 0; });
+    const avgLen = lens.length ? lens.reduce(function (a, b) { return a + b; }, 0) / lens.length : 14;
+    const dashes = (String(text).match(/—/g) || []).length;
+    const markerDensity = (lower.match(/\b(however|therefore|furthermore|moreover|nevertheless|thus)\b/g) || []).length / Math.max(1, lens.length);
+
+    return {
+      domain: domain,
+      formality: formality,
+      density: density,
+      significance: significance,
+      styleProfile: {
+        avgSentenceLen: avgLen,
+        contractionRate: Math.min(1, contractionsN / Math.max(1, lens.length)),
+        dashCadence: Math.min(1, dashes / Math.max(1, lens.length / 4)),
+        markerDensity: markerDensity,
+        formalBias: formality
+      },
+      contentFreq: contentFreq,
+      wordCount: words.length
+    };
+  }
+
+  /* ============================================================
+     SECTION 9 — Rewrite planner (stage 5)
+     Turns the analysis into per-run probabilities. Blends the
+     document-level plan with the user's style + intensity.
+     ============================================================ */
+
+  function buildPlan(analysis, degree, S) {
+    const sp = analysis.styleProfile;
+    /* the more formal the source, the more we calm the casual texture */
+    const formalCalm = sp.formalBias;                    /* 0..1 */
+    /* the input already talks like a human — nudge, don't bulldoze */
+    const alreadyHuman = Math.max(0, Math.min(1, (sp.contractionRate - 0.12) * 2 + sp.dashCadence * 0.4));
+
+    const P = {
+      structural:    [0.9, 1, 1][degree - 1],
+      cliche:        [0.6, 0.85, 1][degree - 1] * (1 - alreadyHuman * 0.15),
+      synonyms:      [0.3, 0.45, 0.6][degree - 1] * (1 - alreadyHuman * 0.3),
+      contractions:  Math.max(S.contractionRate * (1 - formalCalm * 0.65),
+                              degree === 1 ? 0 : S.contractionRate * (1 - formalCalm * 0.35)),
+      openers:       [0.18, 0.4, 0.6][degree - 1] * (1 - formalCalm * 0.5),
+      hedges:        [0, 0.35, 0.4][degree - 1] * (1 - formalCalm * 0.4),
+      fillers:       [0, 0.45, 0.45][degree - 1] * (1 - formalCalm * 0.55),
+      starters:      degree >= 3 ? 0.14 * (1 - formalCalm * 0.4) : 0,
+      tails:         [0, 0.25, 0.25][degree - 1] * (1 - formalCalm * 0.5),
+      punches:       degree >= 3 ? 0.3 * (1 - formalCalm * 0.6) : 0,
+      splitProb:     [0, 0.7, 0.85][degree - 1],
+      mergeProb:     [0, 0.2, 0.35, 0.5][degree],
+      demoteProb:    [0, 0.3, 0.45, 0.6][degree],
+      varyProb:      [0, 0.4, 0.55, 0.7][degree],
+      emojiProb:     S.emojiProb * (1 - formalCalm * 0.85)
+    };
+    P.contractions = Math.min(P.contractions, S.contractionRate);
+    return P;
+  }
+
+  /* ============================================================
+     SECTION 10 — Gates
+     Stage 7 Meaning Preservation, Stage 8 Grammar & Coherence,
+     Stage 11 Final Quality. Every candidate must clear all three.
+     ============================================================ */
+
+  var MEANING_STOP = {};
+  "the a an and or but if then else when while because of to in on at for with by from as is are was were be been being this that these those it its he she they we you i not no do does did have has had will would can could should may might must about into over under between out up down off again further once here there all any both each few more most other some such only own same so than too just also plus very really quite rather their our your my his her its dont cant wont".split(" ").forEach(function (w) { MEANING_STOP[w] = 1; });
+
+  /* Words the cliché bank intentionally swaps — the meaning gate must
+     treat these pairs as preserved, not lost. */
+  var MEANING_ALIASES = {
+    delve: ["dig"], delves: ["digs"], delving: ["digging"],
+    leverage: ["use", "uses", "used"], leveraging: ["using"], leveraged: ["used"], leverages: ["uses"],
+    utilize: ["use", "uses", "used"], utilizing: ["using"], utilized: ["used"], utilizes: ["uses"],
+    facilitate: ["help", "helps", "helped"], facilitates: ["helps"], facilitating: ["helping"], facilitated: ["helped"],
+    endeavor: ["try", "tries"], endeavors: ["tries"],
+    commence: ["start", "starts"], commence: ["start"],
+    terminate: ["end", "ends"],
+    inquire: ["ask"], ascertain: ["find"],
+    demonstrate: ["show", "shows"], demonstrates: ["shows"], demonstrating: ["showing"],
+    possess: ["have", "has", "had"], possesses: ["has"], possessed: ["had"],
+    navigate: ["handle", "handles", "handling", "deal"], navigating: ["handling"], navigates: ["handles"],
+    foster: ["build", "builds", "building"], fosters: ["builds"], fostering: ["building"],
+    garner: ["earn", "earns", "earned"], garners: ["earns"], garnered: ["earned"],
+    employ: ["use", "uses"], employs: ["uses"],
+    revolutionize: ["shake", "shakes", "shaking"], revolutionizes: ["shakes"], revolutionizing: ["shaking"], revolutionized: ["shook"],
+    unparalleled: ["outstanding"], unprecedented: ["record"], unequivocally: ["clearly"],
+    furthermore: ["also"], moreover: ["plus"], additionally: ["also"],
+    nevertheless: ["even", "still"], nonetheless: ["still"],
+    therefore: ["so", "thus"], consequently: ["so"], however: ["but", "yet"],
+    crucial: ["key"], pivotal: ["key"], vital: ["key"], paramount: ["key"],
+    monumental: ["huge"], significantly: ["lot"], substantially: ["lot"], markedly: ["clearly"],
+    fundamentally: ["heart"], essentially: ["basically"], notably: ["especially"], particularly: ["especially"],
+    myriad: ["lot", "plenty"], plethora: ["lot", "plenty"],
+    cutting: ["new"], seamless: ["smooth"], seamlessly: ["smoothly"],
+    holistic: ["complete"], comprehensive: ["full"], transformative: ["big"],
+    synergy: ["teamwork"], synergies: ["teamwork"], cornerstone: ["backbone"],
+    testament: ["proof"], tapestry: ["mix"], multifaceted: ["layered"], nuanced: ["layered"],
+    underscore: ["show", "shows"], underscores: ["shows"], underscoring: ["showing"],
+    highlight: ["show", "shows"], highlights: ["shows"], highlighting: ["showing"],
+    emphasize: ["stress", "stresses"], emphasizes: ["stresses"], emphasizing: ["stressing"],
+    journey: ["path"], unlock: ["open"], unlocking: ["opening"],
+    harness: ["use", "uses"], meticulous: ["careful"], meticulously: ["carefully"],
+    exhaustive: ["thorough"], robust: ["solid", "strong", "reliable", "sound", "rigorous"],
+    world: ["great"], realm: ["field", "area"], landscape: ["world", "space"],
+    important: ["key", "serious", "major"],
+    note: [], noting: [], mentioning: [], noteworthy: []
+  };
+
+  function contentWords(t) {
+    const out = [];
+    const toks = String(t).toLowerCase().match(/[a-z][a-z'-]*/g) || [];
+    for (const w of toks) {
+      if (w.length < 4 || MEANING_STOP[w]) continue;
+      out.push(w);
+    }
+    return out;
+  }
+
+  function numbersIn(t) {
+    const set = {};
+    const m = String(t).match(/\d+(?:[.,]\d+)?/g) || [];
+    for (const x of m) set[x.replace(/,$/, "")] = 1;
+    return set;
+  }
+
+  function properNounsIn(t) {
+    const set = {};
+    const s = String(t);
+    const lowerAll = s.toLowerCase();
+    const re = /\b[A-Z][a-z]{2,}\b/g;
+    let m;
+    while ((m = re.exec(s)) !== null) {
+      const w = m[0];
+      const before = s.slice(Math.max(0, m.index - 3), m.index);
+      /* skip sentence-initial capitals — they're just grammar */
+      if (m.index === 0 || /[.!?]\s$/.test(before) || /\n\s*$/.test(before)) continue;
+      /* skip words that are common words, whatever their position */
+      if (SAFE_LOWER[w.toLowerCase()]) continue;
+      /* skip words that also appear lowercase anywhere in the text */
+      if (lowerAll.indexOf(w.toLowerCase()) !== -1) continue;
+      set[w] = 1;
+    }
+    return set;
+  }
+
+  /* Stage 7 gate: 0-1. Numbers & proper nouns are hard requirements,
+     content overlap is scored. */
+  function meaningScore(orig, cand, analysis, styleSyn) {
+    const o = contentWords(orig);
+    const cset = {};
+    for (const w of contentWords(cand)) cset[w] = 1;
+    if (!o.length) return 1;
+    let kept = 0;
+    for (const w of o) {
+      if (cset[w]) { kept++; continue; }
+      /* a rewritten content word is acceptable if it's a known rewrite pair */
+      let ok = false;
+      const banks = [MEANING_ALIASES[w], styleSyn ? styleSyn[w] : null, SYNONYMS[w]];
+      for (const bank of banks) {
+        if (!bank) continue;
+        if (!bank.length) { ok = true; break; }  /* empty alias = safe deletion */
+        for (const a of bank) { if (cset[a.split(" ")[0]]) { ok = true; break; } }
+        if (ok) break;
+      }
+      if (ok) kept++;
+    }
+    const overlap = kept / o.length;
+
+    /* hard checks */
+    const on = numbersIn(orig), cn = numbersIn(cand);
+    for (const k in on) { if (!cn[k]) return 0; }
+    const op = properNounsIn(orig), cp = properNounsIn(cand);
+    for (const k in op) { if (!cp[k]) return 0; }
+
+    /* significance weighting: dense paragraphs get stricter overlap */
+    const weight = analysis ? 0.35 + analysis.density * 0.65 : 1;
+    return Math.max(0, (overlap - (1 - weight) * 0.35) / weight);
+  }
+
+  /* Stage 8 gate: mechanical defects. Returns list of problems. */
+  function grammarCheck(text) {
+    const problems = [];
+    const t = String(text);
+    if (/\s{2,}/.test(t)) problems.push("double-space");
+    if (/\s+[,.;:!?]/.test(t)) problems.push("space-before-punct");
+    if (/,\s*,|,\s*\./.test(t)) problems.push("dangling-comma");
+    if (/\b(a|an|the)\s+(a|an|the)\b/i.test(t)) problems.push("double-article");
+    if (/\b(and|but|so|also|plus)\s+(and|but|so|also|plus)\b/i.test(t)) problems.push("marker-dup");
+    if (/[.!?]\s+[a-z]/.test(t)) problems.push("lowercase-start");
+    if (/\b\w+ly,\s*\w+ly\b/i.test(t)) problems.push("adverb-dup");
+    if ((t.match(/"/g) || []).length % 2 !== 0) problems.push("unbalanced-quote");
+    if ((t.match(/\(/g) || []).length !== (t.match(/\)/g) || []).length) problems.push("unbalanced-paren");
+    if (/\u0001/.test(t)) problems.push("vault-leak");
+    if (/[A-Za-z]\s*—\s*[.!?]/.test(t)) problems.push("dash-punct");
+    return problems;
+  }
+
+  /* Stage 11: weighted blend. Detector stays dominant; meaning and
+     grammar act as thresholds (checked by the caller). */
+  function qualityScore(humanScore, meaning) {
+    return humanScore * 0.85 + meaning * 100 * 0.15;
+  }
+
+  /* ============================================================
+     SECTION 11 — The 12-stage pipeline runner
+     ============================================================ */
+
+  function generateCandidateP(text, degree, skipStructure, S, P) {
+    let s = text;
+
+    /* stage 6a: structural rewrites */
+    if (!skipStructure && rand() < P.structural) {
+      s = passiveToActive(s);
+      s = thereIsExtraction(s);
+    }
+
+    const guarded = protectSpans(s);
+    s = guarded.text;
+
+    /* stage 6b: cliché bank */
+    if (rand() < P.cliche) {
+      for (const [re, rep] of CLICHES) {
+        if (typeof rep === "function") {
+          s = s.replace(re, function () {
+            const args = Array.prototype.slice.call(arguments);
+            const m = args[0];
+            const out = rep.apply(null, [m].concat(args.slice(1)));
+            return typeof out === "string" ? out : m;
+          });
+        } else {
+          s = smartReplace(s, re, rep);
+        }
+      }
+      s = demoteMarkers(s, degree, P.demoteProb);
+
+      if (S.postCliches) {
+        for (const [re, rep] of S.postCliches) s = smartReplace(s, re, rep);
+      }
+    }
+
+    /* stage 6c: contractions at the planned rate */
+    for (const [re, rep] of CONTRACTIONS) {
+      if (P.contractions >= 0.95) {
+        s = smartReplace(s, re, rep);
+      } else {
+        s = s.replace(re, function (m) {
+          return rand() < P.contractions ? matchCase(m, rep) : m;
+        });
+      }
+    }
+
+    s = guardedSynonymPassP(s, P.synonyms, S);
+    s = varyRepeats(s, degree, P.varyProb);
+    s = restoreSpans(s, guarded.vault);
+
+    /* stage 6d: rhythm */
+    s = splitLongSentences(s, degree);
+    s = mergeShortSentences(s, degree, S, P.mergeProb);
+
+    /* stage 9: naturalness refinement texture */
+    s = addHumanTextureP(s, degree, S, P);
+
+    s = cleanup(s);
+    s = capFirst(s);
+    return s;
+  }
+
+  function guardedSynonymPassP(text, prob, S) {
+    if (rand() > prob + 0.001) return cleanupTokens(text);
+    let out = text;
+    const bank = S.synonyms;
+    const toks = tokenize(out);
+    for (let i = 0; i < toks.length; i++) {
+      const tok = toks[i];
+      if (!isWordTok(tok)) continue;
+      const bare = tok.replace(/[^A-Za-z']/g, "");
+      if (!bare) continue;
+      const entry = bank[bare.toLowerCase()];
+      if (!entry) continue;
+      if (i > 0 && /^[A-Z]/.test(bare) && !/[.!?]\s*$/.test(toks[i - 1])) continue;
+      if (rand() > prob) continue;
+      const repl = pick(entry);
+      let newTok = /^[A-Z]/.test(bare) ? repl[0].toUpperCase() + repl.slice(1) : repl;
+      const trailing = (tok.match(/[.,;:!?"']+$/) || [""])[0];
+      if (trailing && !/[.,;:!?"']$/.test(newTok)) newTok += trailing;
+      toks[i] = newTok;
+    }
+    return cleanupTokens(toks.join(""));
+  }
+
+  function addHumanTextureP(s, degree, S, P) {
+    if (degree >= 2 && rand() < P.openers) {
+      s = pick(S.openers) + " " + lowerFirstWord(s);
+    }
+
+    if (degree >= 2 && rand() < P.hedges) {
+      const adv = pick(S.intensifiers);
+      s = s.replace(/\b(is|are|was|were|seems?|feels?|looks?)\s+(\w+ed|\w+n|good|bad|big|small|hard|easy|clear|strong|weak)\b/i,
+        function (m, be, adj) {
+          if (rand() < 0.6) return be + " " + adv + " " + adj;
+          return m;
+        });
+    }
+
+    if (degree >= 3 && rand() < P.hedges) {
+      s = s.replace(/\b(will|would|should|could|can)\s+([a-z]+)(?!\s)/i,
+        function (m, modal, verb) {
+          if (rand() < 0.35) return modal + " " + pickWeighted(S.hedges) + " " + verb;
+          return m;
+        });
+    }
+
+    if (degree >= 3 && rand() < P.fillers) {
+      s = s.replace(/,\s+/, function (m) {
+        const f = pickWeighted(S.fillers);
+        return rand() < 0.5 ? ", " + f + ", " : m;
+      });
+    }
+
+    const MARKER = /^(?:also|plus|and|but|so|still|even so|that said|however)\b/i;
+    if (degree >= 3 && P.starters > 0) {
+      s = s.replace(/([.!?])\s+([A-Z])([a-z]+)/g, function (m, p, ch, rest, offset) {
+        if (rand() < P.starters && !MARKER.test(ch + rest)) {
+          const before = s.slice(Math.max(0, offset - 12), offset + 1);
+          if (/(?:^|\s)(?:[A-Za-z]|Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|St)\.$/i.test(before)) return m;
+          return p + " " + pick(S.sentStarters) + " " + ch.toLowerCase() + rest;
+        }
+        return m;
+      });
+    }
+
+    if (degree >= 2 && rand() < 0.3) {
+      s = s.replace(/,\s+and\s+/, function () {
+        return rand() < 0.6 ? " — and " : ", and ";
+      });
+    }
+
+    if (degree >= 2 && rand() < P.tails) {
+      s = s.replace(/[.!?]+\s*$/, function () {
+        const tail = s.slice(-80).toLowerCase();
+        const options = S.tailTags.filter(function (tag) {
+          const core = tag.toLowerCase().replace(/[^a-z ]/g, "").trim();
+          return core.split(/\s+/).every(function (w) { return !w || tail.indexOf(w) === -1; });
+        });
+        return options.length ? pick(options) : "";
+      });
+    }
+
+    if (degree >= 3 && rand() < P.punches && s.split(/\s+/).length > 25) {
+      s += " " + pick(S.punches);
+    }
+
+    if (degree >= 2 && P.emojiProb > 0 && S.emoji.length && rand() < P.emojiProb) {
+      s = s.replace(/\s*$/, "") + pick(S.emoji);
+    }
+
+    return s;
+  }
+
+  /* generateCandidate for the legacy humanize() path — builds a default
+     plan and delegates. */
+  function generateCandidate(text, degree, skipStructure, S) {
+    const P = buildPlan(analyzeDocument(text), degree, S);
+    return generateCandidateP(text, degree, skipStructure, S, P);
+  }
+
+  /* ---------- full pipeline: analyze -> plan -> candidates -> gates ---------- */
+
+  function pipelineRewrite(para, degree, S, opts) {
+    const o = opts || {};
+    const analysis = o.analysis || analyzeDocument(para);
+    const P = buildPlan(analysis, degree, S);
+    const attempts = o.candidates || (degree === 1 ? 2 : degree === 3 ? 4 : 3);
+    const base = detectScore(para).score;
+    const baseMeaning = 1;
+
+    let best = null, bestQ = -1, bestMeaning = 0;
+    let attemptsUsed = 0;
+
+    for (let i = 0; i < attempts; i++) {
+      const skip = attempts >= 3 && i === attempts - 1; /* last candidate = mild */
+      let cand = generateCandidateP(para, degree, skip, S, P);
+      attemptsUsed++;
+
+      const g = grammarCheck(cand);
+      if (g.length) continue;                       /* stage 8 gate */
+      const meaning = meaningScore(para, cand, analysis, S.synonyms);
+      if (meaning < 0.55) continue;                 /* stage 7 gate */
+      const human = detectScore(cand).score;
+      const q = qualityScore(human, meaning);       /* stage 11 */
+      if (q > bestQ) { bestQ = q; best = cand; bestMeaning = meaning; }
+    }
+
+    /* fallback ladder: progressively milder rewrites of the best plan */
+    if (!best) {
+      const ladder = [
+        { d: degree, skip: true },
+        { d: Math.max(1, degree - 1), skip: false },
+        { d: 1, skip: true }
+      ];
+      for (const step of ladder) {
+        for (let k = 0; k < 2; k++) {
+          const P2 = buildPlan(analysis, step.d, S);
+          const cand = generateCandidateP(para, step.d, step.skip, S, P2);
+          attemptsUsed++;
+          const g = grammarCheck(cand);
+          if (g.length) continue;
+          const meaning = meaningScore(para, cand, analysis, S.synonyms);
+          if (meaning < 0.5) continue;
+          const human = detectScore(cand).score;
+          const q = qualityScore(human, meaning);
+          if (q > bestQ) { bestQ = q; best = cand; bestMeaning = meaning; }
+        }
+        if (best) break;
+      }
+    }
+
+    /* never ship a rewrite worse than the original */
+    if (!best || bestQ < base) {
+      return {
+        text: para, changed: false,
+        humanScore: base, meaning: 1, quality: base,
+        fromScore: base, attempts: attemptsUsed
+      };
+    }
+
+    return {
+      text: best, changed: true,
+      humanScore: detectScore(best).score,
+      meaning: bestMeaning,
+      quality: bestQ,
+      fromScore: base,
+      attempts: attemptsUsed
+    };
+  }
+
+  /* ============================================================
+     SECTION 12 — humanize() on the v3 pipeline (back-compat API)
+     ============================================================ */
+
+  function humanize(text, opts) {
+    reseed();
+    const o = opts || {};
+    const degree = Math.max(1, Math.min(3, o.degree || 2));
+    const S = resolveStyle(o.style);
+    const raw = String(text).replace(/\r\n/g, "\n");
+
+    if (!raw.trim()) {
+      return { text: "", score: 0, fromScore: null, attempts: 0, style: S.name, changed: 0 };
+    }
+
+    const analysis = analyzeDocument(raw);
+    const paragraphs = raw.split(/\n{2,}/);
+    const attemptsVal = o.candidates || (degree === 1 ? 2 : degree === 3 ? 4 : 3);
+
+    const outParas = [];
+    let qualitySum = 0, fromSum = 0, paraCount = 0, changedCount = 0;
+
+    for (const para of paragraphs) {
+      if (!para.trim()) { outParas.push(para); continue; }
+      const r = pipelineRewrite(para, degree, S, { analysis: analysis, candidates: attemptsVal });
+      outParas.push(r.text);
+      qualitySum += r.quality;
+      fromSum += r.fromScore;
+      paraCount++;
+      if (r.changed) changedCount++;
+    }
+
+    const joined = outParas.join("\n\n");
+    return {
+      text: joined,
+      score: detectScore(joined).humanPct,
+      fromScore: paraCount ? Math.round(fromSum / paraCount) : null,
+      quality: paraCount ? Math.round(qualitySum / paraCount) : null,
+      changed: changedCount,
+      attempts: attemptsVal,
+      style: S.name
+    };
+  }
+
+  function listStyles() {
+    return Object.keys(STYLES);
+  }
+
+  /* ============================================================
+     SECTION 13 — Document pipeline (IHumanDocs)
+     Stage 1 Document Parser -> Stage 2 Text+Structure Extraction ->
+     Stage 3 Page/Paragraph/Heading Detection -> Stage 4 humanization
+     (the 12-stage engine, per block) -> Stage 5 Reconstruct ->
+     Stage 6 Download.
+     Runs on window.IHumanizer internals via the injected I handle.
+     ============================================================ */
+
+  function mkRuntime(I) {
+    const PARSER_VERSION = "1";
+
+    /* ---------- external libraries (lazy, from CDN) ---------- */
+
+    var CDN = {
+      pdfjs: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+      pdfworker: "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js",
+      mammoth: "https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js",
+      jspdf: "https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+      docx: "https://cdn.jsdelivr.net/npm/docx@8.5.0/build/index.umd.js"
+    };
+
+    function loadScript(url) {
+      return new Promise(function (resolve, reject) {
+        var el = document.createElement("script");
+        el.src = url;
+        el.async = true;
+        el.onload = function () { resolve(); };
+        el.onerror = function () { reject(new Error("Failed to load " + url)); };
+        document.head.appendChild(el);
+      });
+    }
+
+    function ensure(tag) {
+      if (tag === "pdfjs") {
+        if (window.pdfjsLib) return Promise.resolve();
+        return loadScript(CDN.pdfjs).then(function () {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = CDN.pdfworker;
+        });
+      }
+      if (tag === "mammoth") {
+        if (window.mammoth) return Promise.resolve();
+        return loadScript(CDN.mammoth);
+      }
+      if (tag === "jspdf") {
+        if (window.jspdf && window.jspdf.jsPDF) return Promise.resolve();
+        return loadScript(CDN.jspdf);
+      }
+      if (tag === "docx") {
+        if (window.docx && window.docx.Document) return Promise.resolve();
+        return loadScript(CDN.docx);
+      }
+      return Promise.reject(new Error("unknown lib " + tag));
+    }
+
+    /* ---------- stage 1+2+3: parse & block extraction ---------- */
+
+    function parsePDF(arrayBuffer, onProgress) {
+      return ensure("pdfjs").then(function () {
+        return window.pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+      }).then(function (pdf) {
+        var blocks = [];
+        var pageNum, page;
+
+        function next() {
+          if (pageNum > pdf.numPages) return Promise.resolve();
+          return pdf.getPage(pageNum).then(function (p) {
+            page = p;
+            return p.getTextContent();
+          }).then(function (tc) {
+            if (onProgress) onProgress("Extracting page " + pageNum + " of " + pdf.numPages, pageNum / pdf.numPages);
+            /* group items into lines by rounded Y, preserving X order */
+            var lines = [];
+            var items = tc.items;
+            var i, it;
+            for (i = 0; i < items.length; i++) {
+              it = items[i];
+              if (!it.str) continue;
+              var y = Math.round(it.transform[5]);
+              var line = null;
+              for (var j = lines.length - 1; j >= 0; j--) {
+                if (Math.abs(lines[j].y - y) <= 2) { line = lines[j]; break; }
+                if (lines[j].y < y - 2) break;
+              }
+              if (!line) { line = { y: y, parts: [], x: it.transform[4] }; lines.push(line); }
+              line.parts.push({ x: it.transform[4], str: it.str });
+            }
+            lines.sort(function (a, b) { return b.y - a.y; });
+            var textLines = lines.map(function (l) {
+              l.parts.sort(function (a, b) { return a.x - b.x; });
+              return l.parts.map(function (p) { return p.str; }).join("").replace(/\s+/g, " ").trim();
+            }).filter(Boolean);
+
+            var para = "";
+
+            /* title-case / ALL-CAPS, short, no terminal punctuation */
+            function looksLikeHeading(s) {
+              if (!s || s.length > 90) return false;
+              if (/[.!?,;:]$/.test(s)) return false;
+              var words = s.replace(/\s+/g, " ").trim().split(" ");
+              if (words.length > 9) return false;
+              var capCount = 0, alphaCount = 0;
+              for (var k = 0; k < words.length; k++) {
+                var w = words[k].replace(/[^A-Za-z]/g, "");
+                if (!w) continue;
+                alphaCount++;
+                if (w.length >= 2 && w === w.toUpperCase()) { capCount++; continue; }
+                if (/^[A-Z]/.test(w)) capCount++;
+              }
+              return alphaCount > 0 && capCount / alphaCount >= 0.67;
+            }
+
+            function flushPara() {
+              para = para.replace(/\s+/g, " ").trim();
+              if (!para) return;
+              var isHeading = looksLikeHeading(para) && !/^\d+[.)]\s/.test(para);
+              blocks.push({ type: isHeading ? "heading" : "para", text: para, page: pageNum });
+              para = "";
+            }
+
+            for (i = 0; i < textLines.length; i++) {
+              var ln = textLines[i];
+              if (!para) { para = ln; continue; }
+              /* a heading line (incoming or accumulated) always stands alone */
+              if (looksLikeHeading(ln)) { flushPara(); para = ln; continue; }
+              if (looksLikeHeading(para)) { flushPara(); para = ln; continue; }
+              /* new paragraph if previous line ended a sentence and this looks like a start */
+              if (/[.!?"”]$/.test(para) && /^[A-Z0-9\u00C0-\u024F"“(]/.test(ln)) {
+                flushPara();
+                para = ln;
+              } else {
+                para += " " + ln;
+              }
+            }
+            flushPara();
+            pageNum++;
+            return next();
+          });
+        }
+
+        pageNum = 1;
+        return next().then(function () {
+          return { blocks: blocks, pages: pdf.numPages, format: "pdf" };
+        });
+      });
+    }
+
+    function parseDOCX(arrayBuffer) {
+      return ensure("mammoth").then(function () {
+        return window.mammoth.convertToHtml({ arrayBuffer: arrayBuffer });
+      }).then(function (res) {
+        var holder = document.createElement("div");
+        holder.innerHTML = res.value || "";
+        var blocks = [];
+        var kids = holder.children;
+        for (var i = 0; i < kids.length; i++) {
+          var el = kids[i];
+          var tag = el.tagName.toLowerCase();
+          var text = (el.textContent || "").replace(/\s+/g, " ").trim();
+          if (!text) continue;
+          if (/^h[1-6]$/.test(tag)) {
+            blocks.push({ type: "heading", text: text, level: +tag[1], page: 0 });
+          } else if (tag === "li") {
+            blocks.push({ type: "para", text: "\u2022 " + text, page: 0, list: true });
+          } else if (tag === "p") {
+            blocks.push({ type: "para", text: text, page: 0 });
+          }
+        }
+        return { blocks: blocks, pages: 0, format: "docx" };
+      });
+    }
+
+    /* ---------- stage 4: humanization over blocks ---------- */
+
+    function isSkippable(text) {
+      if (!text) return true;
+      var t = text.trim();
+      if (!t) return true;
+      if (/^(https?:\/\/|www\.)\S+$/i.test(t)) return true;
+      if (/^[\d\s.,;:%–—-]+$/.test(t)) return true;
+      if (t.length < 4) return true;
+      return false;
+    }
+
+    function humanizeBlocks(blocks, degree, style, onProgress) {
+      var S = I.resolveStyle(style);
+      var out = [];
+      var cache = {};
+      var changed = 0, qualitySum = 0, fromSum = 0, processed = 0;
+      var work = blocks.filter(function (b) { return b.type === "para" && !isSkippable(b.text); });
+      var i = 0;
+
+      function next() {
+        if (i >= work.length) return Promise.resolve();
+        var b = work[i];
+        if (onProgress) onProgress("Humanizing paragraph " + (i + 1) + " of " + work.length, i / work.length);
+        return new Promise(function (resolve) {
+          setTimeout(function () {
+            var r;
+            try {
+              I.reseed();  /* decorrelate texture from the previous paragraph */
+              r = I.pipelineRewrite(b.text, degree, S, {});
+            } catch (e) {
+              r = { text: b.text, changed: false, quality: 0, fromScore: 0 };
+            }
+            cache[i] = r;
+            b._result = r;
+            if (r.changed) changed++;
+            qualitySum += r.quality;
+            fromSum += r.fromScore;
+            processed++;
+            i++;
+            resolve();
+          }, 0);
+        }).then(next);
+      }
+
+      return next().then(function () {
+        if (onProgress) onProgress("Reconstructing document…", 1);
+        return {
+          blocks: blocks,
+          changed: changed,
+          processed: processed,
+          avgQuality: processed ? Math.round(qualitySum / processed) : 0,
+          avgFrom: processed ? Math.round(fromSum / processed) : 0,
+          cache: cache,
+          style: S.name
+        };
+      });
+    }
+
+    /* ---------- stage 5: reconstruction ---------- */
+
+    function docxParagraphs(blocks) {
+      var docx = window.docx;
+      var paras = [];
+      for (var i = 0; i < blocks.length; i++) {
+        var b = blocks[i];
+        var txt = b.type === "heading" ? b.text : (b._result && b._result.changed ? b._result.text : b.text);
+        if (b.type === "heading") {
+          paras.push(new docx.Paragraph({ text: txt, heading: docx.HeadingLevel["HEADING_" + (b.level || 1)] }));
+        } else {
+          paras.push(new docx.Paragraph({ text: txt, spacing: { after: 160 } }));
+        }
+      }
+      return paras;
+    }
+
+    function reconstructDOCX(blocks, name) {
+      return ensure("docx").then(function () {
+        var docx = window.docx;
+        var doc = new docx.Document({
+          creator: "iHuman",
+          title: name || "Humanized document",
+          sections: [{ children: docxParagraphs(blocks) }]
+        });
+        return docx.Packer.toBlob(doc);
+      });
+    }
+
+    function reconstructPDF(blocks, name) {
+      return ensure("jspdf").then(function () {
+        var jsPDF = window.jspdf.jsPDF;
+        var doc = new jsPDF({ unit: "pt", format: "a4" });
+        var W = doc.internal.pageSize.getWidth();
+        var H = doc.internal.pageSize.getHeight();
+        var M = 56;
+        var y = M;
+
+        function ensureRoom(h) {
+          if (y + h > H - M) { doc.addPage(); y = M; }
+        }
+
+        for (var i = 0; i < blocks.length; i++) {
+          var b = blocks[i];
+          var txt = b.type === "heading" ? b.text : (b._result && b._result.changed ? b._result.text : b.text);
+          if (b.type === "heading") {
+            ensureRoom(30);
+            y += 8;
+            doc.setFont("helvetica", "bold");
+            doc.setFontSize(14);
+            var hl = doc.splitTextToSize(txt, W - M * 2);
+            doc.text(hl, M, y);
+            y += hl.length * 18 + 6;
+            doc.setFont("helvetica", "normal");
+          } else {
+            doc.setFontSize(11);
+            var lines = doc.splitTextToSize(txt, W - M * 2);
+            for (var j = 0; j < lines.length; j++) {
+              ensureRoom(16);
+              doc.text(lines[j], M, y);
+              y += 15;
+            }
+            y += 9;
+          }
+        }
+        return doc.output("blob");
+      });
+    }
+
+    function saveBlob(blob, filename) {
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      a.click();
+      a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 1500);
+    }
+
+    /* ---------- public document API ---------- */
+
+    function parseFile(file, onProgress) {
+      var name = (file.name || "").toLowerCase();
+      if (file.size > 15 * 1024 * 1024) {
+        return Promise.reject(new Error("File is larger than 15 MB"));
+      }
+      if (name.slice(-4) === ".pdf") {
+        return file.arrayBuffer().then(function (buf) { return parsePDF(buf, onProgress); });
+      }
+      if (name.slice(-5) === ".docx") {
+        return file.arrayBuffer().then(parseDOCX);
+      }
+      if (name.slice(-4) === ".doc" || name.slice(-4) === ".txt") {
+        return Promise.reject(new Error("Please use .pdf or .docx (legacy .doc and .txt are not supported)"));
+      }
+      return Promise.reject(new Error("Unsupported file type — use PDF or DOCX"));
+    }
+
+    return {
+      parseFile: parseFile,
+      humanizeBlocks: humanizeBlocks,
+      reconstructDOCX: reconstructDOCX,
+      reconstructPDF: reconstructPDF,
+      saveBlob: saveBlob,
+      isSkippable: isSkippable,
+      version: PARSER_VERSION
+    };
+  }
+
+  /* ============================================================
+     SECTION 14 — Public API
      ============================================================ */
 
   window.IHumanizer = {
@@ -1211,6 +2101,14 @@
     score: function (t) { return detectScore(t).humanPct; },
     reseed: reseed,
     styles: listStyles,
-    version: "2.1.0"
+    analyze: analyzeDocument,
+    pipelineRewrite: pipelineRewrite,
+    resolveStyle: resolveStyle,
+    grammarCheck: grammarCheck,
+    meaningScore: function (orig, cand) { return meaningScore(orig, cand, null, null); },
+    qualityScore: qualityScore,
+    version: "3.0.0"
   };
+
+  window.IHumanDocs = mkRuntime(window.IHumanizer);
 })();
