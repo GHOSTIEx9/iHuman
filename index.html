@@ -64,12 +64,6 @@
     </section>
 
     <section id="studio" class="studio">
-      <div class="tabs" role="tablist" aria-label="What are you humanizing?">
-        <button class="tabs__btn is-active" data-tab="text" role="tab" aria-selected="true" type="button">Text</button>
-        <button class="tabs__btn" data-tab="doc" role="tab" aria-selected="false" type="button">Document · PDF / DOCX</button>
-        <span class="tabs__glider" aria-hidden="true"></span>
-      </div>
-
       <div class="studio__controls scroll-reveal">
         <div class="seg seg--voice" role="group" aria-label="Style">
           <button class="seg__btn is-active" data-style="casual" type="button">Casual</button>
@@ -107,45 +101,6 @@
         <p class="hint glass-pill">Runs entirely in your browser — your text never leaves this page.</p>
       </div>
 
-      <div class="studio__col scroll-reveal studio__col--doc-in" hidden>
-        <div class="pane glass">
-          <div class="pane__head">
-            <span class="pane__label">Document</span>
-            <div class="pane__actions">
-              <button class="btn btn--ghost btn--xs" id="docClearBtn" type="button" disabled>Clear</button>
-            </div>
-          </div>
-          <div class="dropzone" id="dropzone" role="button" tabindex="0" aria-label="Upload a PDF or DOCX file">
-            <svg viewBox="0 0 24 24" class="dropzone__icon" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14 2v6h6" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M12 18v-6m0 0-2.5 2.5M12 12l2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>
-            <p class="dropzone__title">Drop a PDF or DOCX here</p>
-            <p class="dropzone__sub">or <span class="dropzone__link">browse files</span> · up to 15 MB · parsed locally, never uploaded</p>
-            <input type="file" id="fileInput" accept=".pdf,.docx" hidden />
-          </div>
-          <div class="filecard" id="fileCard" hidden>
-            <div class="filecard__icon" aria-hidden="true">📄</div>
-            <div class="filecard__meta">
-              <span class="filecard__name" id="fileName"></span>
-              <span class="filecard__info" id="fileInfo"></span>
-            </div>
-            <button class="btn btn--ghost btn--xs" id="fileRemoveBtn" type="button">Remove</button>
-          </div>
-          <div class="extract" id="extractReport" hidden>
-            <div class="extract__row"><span>Pages</span><b id="xPages">—</b></div>
-            <div class="extract__row"><span>Headings detected</span><b id="xHeadings">—</b></div>
-            <div class="extract__row"><span>Paragraphs</span><b id="xParas">—</b></div>
-            <div class="extract__row"><span>Words</span><b id="xWords">—</b></div>
-          </div>
-          <div class="progress" id="docProgress" hidden><div class="progress__fill" id="docProgressFill"></div></div>
-          <div class="pane__foot">
-            <span class="meta" id="docStatus">No file loaded</span>
-            <div class="controls">
-              <button class="btn btn--primary" id="docHumanizeBtn" type="button" disabled><span class="btn__label">Humanize document</span></button>
-            </div>
-          </div>
-        </div>
-        <p class="hint glass-pill">Your file is parsed and rewritten entirely on this device.</p>
-      </div>
-
       <div class="studio__col scroll-reveal studio__col--text-out" style="--d:.14s">
         <div class="pane glass pane--out">
           <div class="pane__head">
@@ -174,31 +129,6 @@
         </div>
       </div>
 
-      <div class="studio__col scroll-reveal studio__col--doc-out" style="--d:.14s" hidden>
-        <div class="pane glass pane--out">
-          <div class="pane__head">
-            <span class="pane__label">Humanized document</span>
-            <div class="pane__actions">
-              <button class="btn btn--ghost btn--xs" id="docPdfBtn" type="button" disabled>PDF ↓</button>
-              <button class="btn btn--ghost btn--xs" id="docDocxBtn" type="button" disabled>DOCX ↓</button>
-            </div>
-          </div>
-          <div class="docpreview" id="docPreview" aria-live="polite">
-            <div class="output__empty">
-              <svg viewBox="0 0 64 64" class="output__icon" aria-hidden="true"><path d="M32 10c9 12 15 19 15 27a15 15 0 0 1-30 0c0-8 6-15 15-27z"/></svg>
-              <p>Upload a document, then humanize it.</p>
-            </div>
-          </div>
-          <div class="pane__foot">
-            <span class="meta" id="docOutStats">—</span>
-            <div class="meter" id="docMeter" title="Estimated human-ness">
-              <span class="meter__label">Human-ness</span>
-              <div class="meter__track"><div class="meter__fill" id="docMeterFill"></div></div>
-              <span class="meter__value" id="docMeterValue">—</span>
-            </div>
-          </div>
-        </div>
-      </div>
     </section>
 
     <section id="how" class="how">
