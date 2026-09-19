@@ -612,15 +612,6 @@ body {
   transition: left .4s var(--ease-spring), width .4s var(--ease-spring);
 }
 
-.hint {
-  text-align: center;
-  color: var(--ink-2);
-  font-size: .82rem;
-  margin-top: 14px;
-  padding: 9px 18px;
-  align-self: center;
-}
-
 /* Output pane */
 
 .output {
@@ -904,7 +895,7 @@ html.js .scroll-reveal.is-visible {
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px 18px;
-  margin: 0 auto 22px;
+  margin: 0 auto;
 }
 
 /* ============================================================
